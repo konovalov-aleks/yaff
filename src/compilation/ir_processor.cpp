@@ -125,7 +125,7 @@ void IRProcessor::ProcessMessage(ir::IR& ir, ir::MessageDef& messageDef) {
             Ensure(messageDef.Layout != MessageLayout::MESSAGE_LAYOUT_FIXED, "message '", messageDef.Name,
                    "' with a fixed layout cannot contain oneof fields");
             Ensure(fieldDef.Type->Type != Type::TYPE_ARRAY, "field '", fieldDef.Name, "' (ID: ", fieldDef.Id,
-                   ") is an array and cannot be part of oneof field");
+                   ") is an array and cannot be a oneof member");
             Ensure(fieldDef.Deprecated || fieldDef.Presence == Presence::PRESENCE_EXPLICIT, "oneof field '",
                    fieldDef.Name, "' (ID: ", fieldDef.Id, ") must have explicit presence");
 

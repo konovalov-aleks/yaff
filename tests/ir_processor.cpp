@@ -202,7 +202,7 @@ TEST(IRProcessorErrorHandling, ArrayMustNotBeOneof) {
     auto* message = t.AddMessage(t.AddSchema());
     auto& field = t.AddField(message, t.AddType(Type::TYPE_ARRAY, t.AddType(Type::TYPE_INT32)));
     field.OneOf = "choice";
-    t.ExpectProcessError("field 'field' (ID: 1) is an array and cannot be part of oneof field");
+    t.ExpectProcessError("field 'field' (ID: 1) is an array and cannot be a oneof member");
 }
 
 TEST(IRProcessorErrorHandling, OneofMustHaveExplicitPresence) {
