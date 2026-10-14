@@ -27,7 +27,8 @@ test::UniversalMessage GenerateUniversalMessage() {
         proto.add_repeated_bytes_field(std::to_string(i));
     }
     for (size_t i = 0; i < 9; ++i) {
-        const auto v = (i % 2 ? test::Enumeration::ENUMERATION_VALUE : test::Enumeration::ENUMERATION_OTHER_VALUE);
+        const auto v =
+            (i % 2 ? test::Enumeration::ENUMERATION_VALUE_ALIAS : test::Enumeration::ENUMERATION_OTHER_VALUE);
         proto.add_repeated_enum_field(v);
     }
     for (size_t i = 0; i < 11; ++i) {
@@ -92,6 +93,10 @@ void CheckRepeatedStringFields(const T& obj) {
 template <typename T>
 void CheckRepeatedEnumFields(const T& obj) {
     EXPECT_EQ(obj.repeated_enum_field_size(), 9);
+    for (int i = 0; i < 9; ++i) {
+        EXPECT_EQ(static_cast<int>(obj.repeated_enum_field(i)),
+                  i % 2 ? test::Enumeration::ENUMERATION_VALUE : test::Enumeration::ENUMERATION_OTHER_VALUE);
+    }
 }
 
 template <typename T>
@@ -129,6 +134,13 @@ TEST(ProtoAPI, TemplateTest) {
     const auto& yaff = yaff::ReadMessage<protoyaff::test::UniversalMessage>(buffer.Data());
 
     const auto& restoredProto = Restore(yaff);
+
+    static_assert(std::is_same_v<protoyaff::test::UniversalMessage::EmbeddedEnumeration,
+                                 protoyaff::test::UniversalMessage_EmbeddedEnumeration>,
+                  "Nested alias for enumeration is not generated");
+    static_assert(std::is_same_v<protoyaff::test::UniversalMessage::EmbeddedMessage,
+                                 protoyaff::test::UniversalMessage_EmbeddedMessage>,
+                  "Nested alias for message is not generated");
 
     CheckExplicitStringFields(originalProto);
     CheckExplicitStringFields(yaff);
@@ -176,22 +188,21 @@ TEST(ProtoAPI, TemplateTest) {
 }
 
 TEST(ProtoAPI, Enumerations) {
-    const std::array<std::pair<protoyaff::test::Enumeration, test::Enumeration>, 4> testSet = {
-        std::pair{protoyaff::test::Enumeration::ENUMERATION_UNSPECIFIED, test::Enumeration::ENUMERATION_UNSPECIFIED},
-        std::pair{protoyaff::test::Enumeration::ENUMERATION_VALUE, test::Enumeration::ENUMERATION_VALUE},
-        std::pair{protoyaff::test::Enumeration::ENUMERATION_OTHER_VALUE, test::Enumeration::ENUMERATION_OTHER_VALUE},
-        std::pair{protoyaff::test::Enumeration::auto_, test::Enumeration::auto_}};
+    const std::array<std::string_view, 8> testSet = {"ENUMERATION_UNSPECIFIED", "ENUMERATION_UNSPECIFIED_ALIAS",
+                                                     "ENUMERATION_NEGATIVE",    "ENUMERATION_NEGATIVE_ALIAS",
+                                                     "ENUMERATION_VALUE",       "ENUMERATION_VALUE_ALIAS",
+                                                     "ENUMERATION_OTHER_VALUE", "auto"};
 
-    for (auto [v1, v2] : testSet) {
-        auto n1 = protoyaff::test::Enumeration_Name(v1);
-        auto n2 = test::Enumeration_Name(v2);
-        EXPECT_EQ(n1, n2);
-
+    for (const auto name : testSet) {
+        SCOPED_TRACE(name);
         protoyaff::test::Enumeration r1;
         test::Enumeration r2;
-        EXPECT_TRUE(protoyaff::test::Enumeration_Parse(n1, &r1));
-        EXPECT_TRUE(test::Enumeration_Parse(n2, &r2));
+        EXPECT_TRUE(protoyaff::test::Enumeration_Parse(name, &r1));
+        EXPECT_TRUE(test::Enumeration_Parse(name, &r2));
         EXPECT_EQ(static_cast<int>(r1), static_cast<int>(r2));
+        EXPECT_EQ(protoyaff::test::Enumeration_Name(r1), test::Enumeration_Name(r2));
+        EXPECT_EQ(protoyaff::test::Enumeration_IsValid(static_cast<int>(r1)),
+                  test::Enumeration_IsValid(static_cast<int>(r2)));
     }
 
     EXPECT_EQ(static_cast<int>(protoyaff::test::Enumeration_MIN), static_cast<int>(test::Enumeration_MIN));
@@ -200,4 +211,87 @@ TEST(ProtoAPI, Enumerations) {
 
     EXPECT_EQ(protoyaff::test::Enumeration_IsValid(2), test::Enumeration_IsValid(2));
     EXPECT_EQ(protoyaff::test::Enumeration_IsValid(9000), test::Enumeration_IsValid(9000));
+}
+
+TEST(ProtoAPI, NestedTypeAliasDepth) {
+    // Depth >= 2: the alias inside Level2 must be named "Level3", not "Level2_Level3".
+    static_assert(std::is_same_v<protoyaff::test::DeepNesting::Level2, protoyaff::test::DeepNesting_Level2>,
+                  "Nested alias for depth-1 message is not generated");
+    static_assert(
+        std::is_same_v<protoyaff::test::DeepNesting::Level2::Level3, protoyaff::test::DeepNesting_Level2_Level3>,
+        "Nested alias for depth-2 message is not generated, or was generated with the wrong local name");
+
+    // Enclosing message's own flattened name contains an underscore: the alias inside it must still be
+    // named "Inner", not "Message_Inner".
+    static_assert(
+        std::is_same_v<protoyaff::test::My_UnderscoredMessage::Inner, protoyaff::test::My_UnderscoredMessage_Inner>,
+        "Nested alias is wrong when the enclosing message name contains an underscore");
+}
+
+TEST(ProtoAPI, NestedEnumFullParity) {
+    using Alias = protoyaff::test::UniversalMessage::EmbeddedEnumeration;
+    using Flat = protoyaff::test::UniversalMessage_EmbeddedEnumeration;
+
+    static_assert(std::is_same_v<Alias, Flat>, "Nested alias for enumeration is not generated");
+    static_assert(protoyaff::test::UniversalMessage::EMBEDDED_ENUMERATION_UNSPECIFIED ==
+                  Flat::EMBEDDED_ENUMERATION_UNSPECIFIED);
+    static_assert(protoyaff::test::UniversalMessage::EMBEDDED_ENUMERATION_SPECIFIED ==
+                  Flat::EMBEDDED_ENUMERATION_SPECIFIED);
+    static_assert(protoyaff::test::UniversalMessage::EmbeddedEnumeration_MIN ==
+                  protoyaff::test::UniversalMessage_EmbeddedEnumeration_MIN);
+    static_assert(protoyaff::test::UniversalMessage::EmbeddedEnumeration_MAX ==
+                  protoyaff::test::UniversalMessage_EmbeddedEnumeration_MAX);
+    static_assert(protoyaff::test::UniversalMessage::EmbeddedEnumeration_ARRAYSIZE ==
+                  protoyaff::test::UniversalMessage_EmbeddedEnumeration_ARRAYSIZE);
+
+    for (const int value : {-1, 0, 1, 2}) {
+        EXPECT_EQ(protoyaff::test::UniversalMessage::EmbeddedEnumeration_IsValid(value),
+                  protoyaff::test::UniversalMessage_EmbeddedEnumeration_IsValid(value));
+    }
+
+    EXPECT_EQ(
+        protoyaff::test::UniversalMessage::EmbeddedEnumeration_Name(
+            protoyaff::test::UniversalMessage::EMBEDDED_ENUMERATION_SPECIFIED_ALIAS),
+        test::UniversalMessage::EmbeddedEnumeration_Name(test::UniversalMessage::EMBEDDED_ENUMERATION_SPECIFIED_ALIAS));
+
+    Alias parsedViaAlias{};
+    Flat parsedViaFlat{};
+    const bool aliasParsed = protoyaff::test::UniversalMessage::EmbeddedEnumeration_Parse(
+        "EMBEDDED_ENUMERATION_SPECIFIED_ALIAS", &parsedViaAlias);
+    const bool flatParsed = protoyaff::test::UniversalMessage_EmbeddedEnumeration_Parse(
+        "EMBEDDED_ENUMERATION_SPECIFIED_ALIAS", &parsedViaFlat);
+    EXPECT_TRUE(aliasParsed);
+    EXPECT_TRUE(flatParsed);
+    EXPECT_EQ(parsedViaAlias, parsedViaFlat);
+    EXPECT_EQ(parsedViaAlias, Alias::EMBEDDED_ENUMERATION_SPECIFIED);
+}
+
+TEST(ProtoAPI, NestedAliasEscaping) {
+    using Alias = protoyaff::test::ReservedNameNesting::Default_;
+    using Flat = protoyaff::test::ReservedNameNesting_Default;
+
+    static_assert(std::is_same_v<Alias, Flat>, "Nested alias for a reserved-name enum is not escaped");
+    static_assert(protoyaff::test::ReservedNameNesting::DEFAULT_UNSPECIFIED == Flat::DEFAULT_UNSPECIFIED);
+    static_assert(protoyaff::test::ReservedNameNesting::DEFAULT_ONE == Flat::DEFAULT_ONE);
+    static_assert(protoyaff::test::ReservedNameNesting::Default_MIN ==
+                  protoyaff::test::ReservedNameNesting_Default_MIN);
+    static_assert(protoyaff::test::ReservedNameNesting::Default_MAX ==
+                  protoyaff::test::ReservedNameNesting_Default_MAX);
+    static_assert(protoyaff::test::ReservedNameNesting::Default_ARRAYSIZE ==
+                  protoyaff::test::ReservedNameNesting_Default_ARRAYSIZE);
+
+    for (const int value : {-1, 0, 1, 2}) {
+        EXPECT_EQ(protoyaff::test::ReservedNameNesting::Default_IsValid(value),
+                  protoyaff::test::ReservedNameNesting_Default_IsValid(value));
+    }
+
+    EXPECT_EQ(protoyaff::test::ReservedNameNesting::Default_Name(protoyaff::test::ReservedNameNesting::DEFAULT_ONE),
+              protoyaff::test::ReservedNameNesting_Default_Name(Flat::DEFAULT_ONE));
+
+    Alias parsedViaAlias{};
+    Flat parsedViaFlat{};
+    const bool aliasParsed = protoyaff::test::ReservedNameNesting::Default_Parse("DEFAULT_ONE", &parsedViaAlias);
+    const bool flatParsed = protoyaff::test::ReservedNameNesting_Default_Parse("DEFAULT_ONE", &parsedViaFlat);
+    EXPECT_EQ(aliasParsed, flatParsed);
+    EXPECT_EQ(parsedViaAlias, parsedViaFlat);
 }
